@@ -65,7 +65,7 @@ pacman::p_load(tidyverse, dada2, patchwork, DT,
 ```{r load-data}
 # Set the raw fastq path to the raw sequencing files 
 # Path to the fastq files 
-raw_fastqs_path <- "data/00_raw_gzipped_fastqs"
+raw_fastqs_path <- "data/00_adapter_removed_fastqs"
 raw_fastqs_path
 
 # What files are in this path? Intuition Check 
@@ -534,5 +534,91 @@ elapsed_time
 ```{r session-info}
 # Ensure reproducibility 
 devtools::session_info()
+```
+
+```{r trimming-end-reads}
+library(ShortRead)
+library(Biostrings)
+
+# Input raw files
+raw_fastqs_path <- "data/00_raw_gzipped_fastqs"
+
+forward_reads <- sort(list.files(raw_fastqs_path, pattern = "_1\\.fastq\\.gz$", full.names = TRUE))
+reverse_reads <- sort(list.files(raw_fastqs_path, pattern = "_2\\.fastq\\.gz$", full.names = TRUE))
+
+stopifnot(length(forward_reads) == length(reverse_reads))
+
+# Output folder
+adapter_removed_path <- "data/00_adapter_removed_fastqs"
+dir.create(adapter_removed_path, recursive = TRUE, showWarnings = FALSE)
+
+# Standard Illumina adapter sequences
+f_adapter <- DNAString("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC")
+r_adapter <- DNAString("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT")
+
+# Use shorter seed motifs to detect read-through more flexibly
+# These are specific enough to catch true adapter signal but short enough
+# to still match when only part of the adapter is present
+f_adapter_seed <- DNAString("AGATCGGAAGAGC")
+r_adapter_seed <- DNAString("AGATCGGAAGAGC")
+
+adapter_summary <- vector("list", length(forward_reads))
+
+for (i in seq_along(forward_reads)) {
+  message("Processing sample ", i, " of ", length(forward_reads), ": ", basename(forward_reads[i]))
+  
+  fqF <- readFastq(forward_reads[i])
+  fqR <- readFastq(reverse_reads[i])
+  
+  seqF <- sread(fqF)
+  seqR <- sread(fqR)
+  
+  # Detect adapter read-through in either read of a pair
+  # fixed = TRUE because these are exact adapter seeds, not degenerate primers
+  f_hits <- vcountPattern(f_adapter_seed, seqF, fixed = TRUE) > 0
+  r_hits <- vcountPattern(r_adapter_seed, seqR, fixed = TRUE) > 0
+  
+  # Remove whole pair if adapter is found in either mate
+  keep <- !(f_hits | r_hits)
+  
+  cleanedF <- fqF[keep]
+  cleanedR <- fqR[keep]
+  
+  sample_name <- sub("_1\\.fastq\\.gz$", "", basename(forward_reads[i]))
+  
+  outF <- file.path(adapter_removed_path, paste0(sample_name, "_1.fastq.gz"))
+  outR <- file.path(adapter_removed_path, paste0(sample_name, "_2.fastq.gz"))
+  
+  writeFastq(cleanedF, outF, compress = TRUE)
+  writeFastq(cleanedR, outR, compress = TRUE)
+  
+  adapter_summary[[i]] <- data.frame(
+    sample = sample_name,
+    reads_in = length(fqF),
+    reads_out = length(cleanedF),
+    reads_removed = sum(!keep),
+    percent_removed = round(mean(!keep) * 100, 3)
+  )
+}
+
+adapter_summary_df <- do.call(rbind, adapter_summary)
+adapter_summary_df
+
+# Optional summary stats
+data.frame(
+  total_samples = nrow(adapter_summary_df),
+  median_percent_removed = median(adapter_summary_df$percent_removed),
+  max_percent_removed = max(adapter_summary_df$percent_removed),
+  min_percent_removed = min(adapter_summary_df$percent_removed)
+)
+
+adapter_summary_df <- do.call(rbind, adapter_summary)
+adapter_summary_df
+
+data.frame(
+  median_removed = median(adapter_summary_df$percent_removed),
+  max_removed = max(adapter_summary_df$percent_removed),
+  min_removed = min(adapter_summary_df$percent_removed)
+)
 ```
 
