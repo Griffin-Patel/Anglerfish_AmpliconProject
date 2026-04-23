@@ -1,0 +1,394 @@
+---
+title: "09 Ordination - Anglerfish"
+author: "Griffin Patel"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+<span style="color: red;">INTERPRETATION #1:  What is your scientific question and hypotheses? Do they relate to abundance-unweighted (presence-absence) or abundance-weighted (relative abundance) metrics?</span>
+
+<span style="color: red;">My scientific question is how microbial community composition differs between luminous and non-luminous body regions of deep-sea anglerfishes. The null hypothesis is that luminous body regions do not differ in microbial composition from non-luminous regions. The alternative hypothesis is that luminous body regions have significantly different microbial composition, with an enriched presence of luminescent symbionts and therefore a more distinct community structure. This question is most closely related to abundance-weighted metrics, because the relative abundances of the associated taxa are important for determining whether luminous tissues are dominated by particular symbiotic bacteria. However, abundance-unweighted metrics are still useful for determining whether the overall presence or absence of taxa also differs between tissue groups.</span>
+
+```{r Setup}
+start_time <- Sys.time()
+set.seed(238428)
+
+# Load packages 
+pacman::p_load(tidyverse, devtools, phyloseq, patchwork, vegan, 
+               install = FALSE)
+
+# Load Colors 
+source("code/colors_and_shapes.R")
+
+# Load functions 
+source("code/functions.R")
+```
+
+```{r Load-Data}
+# load phyloseq object
+load("data/03_PreProcessing/preprocessed_physeq.RData")
+
+# Intuition check on seq depth
+min(sample_sums(preprocessed_physeq))
+
+
+# Remove the one outlier with low sequence depth (153 reads) 
+
+preprocessed_physeq <- 
+  preprocessed_physeq %>%
+  subset_samples(names != "SRR8438128_R1_filtered.fastq.gz") %>%
+  # And remove any ASVs unique to this sample, just in case.
+  prune_taxa(taxa_sums(.) > 0, .)
+
+# Check the updated phyloseq object 
+preprocessed_physeq
+
+# Create metadata_df 
+metadata_df <- 
+  preprocessed_physeq %>%
+  sample_data() %>%
+  data.frame()
+
+# Create Metadata_df 
+metadata_df <- 
+  preprocessed_physeq %>%
+  sample_data() %>%
+  data.frame()
+```
+
+```{r Normalize-Read-Depths}
+# calculate read counts per sample 
+raw_TotalSeqs_df <- 
+  preprocessed_physeq %>%
+  # Calculate the total number of sequences/reads
+  sample_sums() %>%
+  data.frame()
+
+# Rename the column 
+colnames(raw_TotalSeqs_df)[1] <- "TotalSeqs"
+
+# add a new column of num_ASVs (RAW, non-noramlized # ASVs)
+raw_TotalSeqsASVs_df <- 
+  raw_TotalSeqs_df %>%
+  mutate(num_ASVs = rowSums(otu_table(preprocessed_physeq) > 1))
+
+#View(raw_TotalSeqsASVs_df)
+
+# Plot histogram of seq depth 
+rawSeq_histogram <- 
+  raw_TotalSeqsASVs_df %>%
+  ggplot(aes(x = TotalSeqs)) + 
+  geom_histogram(bins = 50) + 
+  scale_x_continuous() +
+  labs(title = "Raw Seq Depth Histogram") + 
+  theme_bw() 
+
+# Plot Seq Depth versus num_ASVs
+rawSeq_vs_numASV_plot <- 
+  raw_TotalSeqsASVs_df %>%
+  ggplot(aes(x = num_ASVs, y = TotalSeqs)) + 
+  geom_point() + 
+  scale_y_continuous() +
+  geom_smooth(method = "lm") + 
+  labs(title = "Raw Seq Depth vs # ASVs") + 
+  theme_bw()
+
+# is it significant? 
+summary(lm(TotalSeqs ~ num_ASVs, data = raw_TotalSeqsASVs_df))
+
+# Put the two plots together.
+rawSeq_histogram + rawSeq_vs_numASV_plot +
+  plot_annotation(tag_levels = "A")
+```
+
+<span style="color: red;">INTERPRETATION #2:  Evaluate the raw read count plots above. What did you scale the read counts to in your dataset? Why did you choose that number? What are the potential consequences of this scaling decision for your downstream beta-diversity comparisons?</span>
+
+<span style="color: red;">The raw read count plots show that sequencing depth varies a lot across my samples, with most samples falling well below 100,000 reads but with a few much deeper outliers, including one sample above 300,000 reads. After removing the shallowest outlier sample, I scaled the read counts to the new minimum sequencing depth in the dataset, which was 1,018 reads. I chose that number because it preserves as many samples as possible while still making sequencing depth more comparable across samples for downstream beta-diversity analyses.The raw read depth versus number of ASVs plot also showed that sequencing depth was not significantly associated with the observed number of ASVs (p = 0.137). This suggests that read depth alone is not the main driver of community differences in anglerfish tissues. Even so, scaling is still important because the raw sequencing depth is highly uneven, and without scaling, the deeper samples could negatively impact downstream analysis. A potential consequence of scaling to 1,018 reads is that some rare taxa may be lost or reduced, especially in the more deeply sequenced samples.</span>
+
+
+```{r Scaled-Reads}
+
+min(sample_sums(preprocessed_physeq))
+
+# Scale the reads 
+scaled_physeq <- 
+  preprocessed_physeq %>%
+  scale_reads(round = "matround")
+
+# Look at it 
+scaled_physeq
+
+# Confirm seq read depth of scaled_physeq 
+scaled_TotalSeqs_df <- 
+  scaled_physeq %>%
+  sample_sums() %>%
+  data.frame()
+
+colnames(scaled_TotalSeqs_df)[1] <- "TotalSeqs"
+
+# add a new column of num_ASVs (RAW, non-noramlized # ASVs)
+scaled_TotalSeqsASVs_df <- 
+  scaled_TotalSeqs_df %>%
+  mutate(num_ASVs = rowSums(otu_table(scaled_physeq) > 1))
+
+# Plot it! 
+scaledSeq_histogram <- 
+  scaled_TotalSeqs_df %>%
+  ggplot(aes(x = TotalSeqs)) + 
+  geom_histogram(bins = 50) + 
+  labs(title = "Scaled Seq Depth Histogram") + 
+  scale_x_continuous(limits = c(0, 7500)) + 
+  theme_bw()
+
+# Scaling always gives us a range! 
+# MInimum sequences
+min(scaled_TotalSeqs_df$TotalSeqs)
+
+# Total Range 
+range(scaled_TotalSeqs_df)
+
+# How many is that range? 
+range_seqs <- (max(scaled_TotalSeqs_df$TotalSeqs) - min(scaled_TotalSeqs_df$TotalSeqs))
+range_seqs
+
+# And in terms of percent? 
+range_seqs/max(scaled_TotalSeqs_df$TotalSeqs)
+
+# Set the axis min and max for the next plot 
+max_y <- max(scaled_TotalSeqs_df$TotalSeqs) + 10
+min_y <- min(scaled_TotalSeqs_df$TotalSeqs) - 10
+
+# Now, draw the plot 
+scaledSeq_vs_numASV_plot <- 
+  scaled_TotalSeqsASVs_df %>%
+  ggplot(aes(x = num_ASVs, y = TotalSeqs)) + 
+  geom_point() + 
+  scale_y_continuous(limits = c(min_y, max_y)) +
+  #geom_smooth(method = "lm") + 
+  theme_bw() + 
+  labs(title = "Scaled Seq Depth vs # ASVs")
+
+# Put the two plots together.
+scaledSeq_histogram + scaledSeq_vs_numASV_plot +
+  plot_annotation(tag_levels = "A")
+
+save(scaled_physeq, file = "data/05_Ordination_Lecture/scaled_physeq.RData")
+
+```
+
+<span style="color: red;">INTERPRETATION #3:  Evaluate the scaled read count plots above. Are the total number of sequences across all of your samples in the same general range? What is the minimum and maximum (i.e., the range) of the sequencing depth? What does this tell you about the relationship between sequencing depth and the observed number of ASVs?</span>
+
+<span style="color: red;">The scaled read count plots show that the total number of sequences across my samples is now tightly centered around about 1,018 reads. This is a major improvement over the raw sequencing depth, which varied widely and included two deeply sequenced outliers. After scaling, the sequencing depth is much more standardized, with a minimum of 914 reads and a maximum of 1034 reads, giving a total range of only 120 reads. This small range shows that the samples are now all in the same general sequencing-depth range. Because of that, the relationship between sequencing depth and the observed number of ASVs has been greatly reduced, so differences in ASV counts should now be much less influenced by uneven sequencing effort. Overall, this suggests that scaling was successful and that my samples are now much more comparable for downstream beta-diversity analyses and ordination.</span>
+
+
+<span style="color: red;">INTERPRETATION #4: Which dissimilarity metric is most related to your scientific question? Why or why not?</span>
+
+<span style="color: red;">The dissimilarity metric most related to my scientific question is weighted UniFrac, because my question is specifically asking whether luminous and non-luminous anglerfish tissues differ in the abundance of their associated microbial lineages, especially if luminous organs are enriched for a dominant symbiont. Weighted UniFrac is a strong fit because it incorporates both relative abundance and phylogenetic relatedness, which makes it especially useful for asking whether dominant, evolutionarily distinct bacterial lineages differ between tissue groups. Bray-Curtis is also highly relevant and may better capture general abundance trends between tissues, but it does not incorporate phylogenetic information. Because I do not currently have an available phylogenetic tree, Bray-Curtis remains the best non-phylogenetic option. It will still allow me to evaluate whether the abundances of associated taxa differ between luminous and non-luminous tissues, which will allow me to answer my scientific question.</span>
+
+
+```{r Calculating-Dissimilarity}
+
+# Sorensen Dissimiliarty
+scaled_sorensen_dist <- phyloseq::distance(scaled_physeq, method = "bray", binary = TRUE)
+
+# What does it look like? 
+class(scaled_sorensen_dist)
+
+str(scaled_sorensen_dist)
+
+scaled_bray_dist <- phyloseq::distance(scaled_physeq, method = "bray", binary = FALSE)
+
+```
+
+```{r Ordination}
+
+# Make metadata df for plotting
+
+metadata_df <- read.csv("/local/workdir/glp56/Anglerfish_16S/data/metadata/SraRunTable.csv",
+                        stringsAsFactors = FALSE)
+
+metadata_df$names <- paste0(metadata_df$Run, "_R1_filtered.fastq.gz")
+metadata_df$tissue_group <- ifelse(metadata_df$isolation_source %in% c("Esca", "Caruncles"),
+                                   "Luminous",
+                                   "Non-luminous")
+
+metadata_df <- metadata_df[match(sample_names(scaled_physeq), metadata_df$names), , drop = FALSE]
+
+rownames(metadata_df) <- metadata_df$names
+sample_data(scaled_physeq) <- metadata_df
+
+# Set up style elements 
+
+tissue_colors <- c("Luminous" = "darkgoldenrod1",
+                   "Non-luminous" = "deepskyblue")
+
+isolation_shapes <- c("Caruncles" = 15,
+                      "Esca" = 17,
+                      "fin" = 15,
+                      "gills" = 3,
+                      "Guts" = 4,
+                      "Illicium" = 8,
+                      "skin" = 16)
+
+## Make PCoA plot 
+
+# First, calculate PCoA with Soresen
+scaled_soren_pcoa <- 
+  ordinate(physeq = scaled_physeq,
+           method = "PCoA",
+           distance = "bray", binary = TRUE)
+
+# Plot it: Sorensen PCoA  
+sorensen_pcoa_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                  ordination = scaled_soren_pcoa,
+                  color = "tissue_group",
+                  shape = "isolation_source",
+                  title = "Sorensen PCoA") + 
+  scale_color_manual(values = tissue_colors) + 
+  scale_shape_manual(values = isolation_shapes) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = tissue_group)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+# calculate PCoA with Bray-Curtis
+scaled_bray_pcoa <- 
+  ordinate(physeq = scaled_physeq,
+           method = "PCoA",
+           distance = "bray", binary = FALSE)
+
+# Plot it: Bray-Curtis PCoA 
+bray_pcoa_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                  ordination = scaled_bray_pcoa,
+                  color = "tissue_group",
+                  shape = "isolation_source",
+                  title = "Bray-Curtis PCoA") + 
+  scale_color_manual(values = tissue_colors) + 
+  scale_shape_manual(values = isolation_shapes) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = tissue_group)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+# Show the plots 
+sorensen_pcoa_plot + bray_pcoa_plot + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+```
+
+<span style="color: red;">INTERPRETATION #5: Plot your data using a PCoA. Interpret what you can conclude from the PCoA.</span>
+
+<span style="color: red;">The PCoA plots suggest that microbial community composition differs between luminous and non-luminous anglerfish tissues, although the strength of that pattern depends on the dissimilarity metric used. In the Sorensen PCoA, which is based on presence and absence, the two tissue groups overlap substantially, suggesting that many taxa may be shared between luminous and non-luminous tissues. This makes sense, since there are likely common bacteria associated with many parts of the anglerfish. In contrast, the Bray-Curtis PCoA shows clearer structure between the two tissue groups, with luminous samples forming more of a cluster toward the left and lower portions of the plot, although there is still some overlap elsewhere. This suggests that abundance differences are more important than simple presence or absence in distinguishing these tissue-associated microbial communities. Because there is a small clustered luminous group in the Bray-Curtis PCoA, this supports the idea that luminescent symbionts are present in higher abundance in luminous organs. This fits my scientific question, because enrichment of dominant bacterial symbionts in luminous organs is exactly what I am looking for. Overall, Bray-Curtis appears to capture the biologically relevant differences more clearly than Sorensen, suggesting that abundance-weighted community shifts are a major feature of these anglerfish tissue microbiomes.</span>
+
+```{r NMDS}
+
+## SORENSEN 
+scaled_soren_nmds <- 
+  ordinate(physeq = scaled_physeq,
+         method = "NMDS",
+         distance = "bray", binary = TRUE)
+
+# Plot it! 
+sorensen_nmds_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                ordination = scaled_soren_nmds,
+                color = "tissue_group",
+                shape = "isolation_source",
+                title = "Sorensen NMDS") + 
+  scale_color_manual(values = tissue_colors) + 
+  scale_shape_manual(values = isolation_shapes) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = tissue_group)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+### Bray-Curtis 
+# Second, calculate NMDS with Bray-Curtis
+scaled_bray_nmds <- 
+  ordinate(physeq = scaled_physeq,
+         method = "NMDS",
+         distance = "bray", binary = FALSE)
+
+# Plot it: Bray-Curtis NMDS 
+bray_nmds_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                ordination = scaled_bray_nmds,
+                color = "tissue_group",
+                shape = "isolation_source",
+                title = "Bray-Curtis NMDS") + 
+  scale_color_manual(values = tissue_colors) + 
+  scale_shape_manual(values = isolation_shapes) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = tissue_group)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+# Show the plots 
+sorensen_nmds_plot + bray_nmds_plot + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+```
+
+<span style="color: red;">INTERPRETATION #6: Plot your data using NMDS and interpret the results. How does the NMDS compare to the PCoA you generated in Interpretation #5? Do the two ordination methods tell a consistent story, or do you notice any differences in how the samples are arranged? Make sure to report the stress value and comment on whether it is acceptable.</span>
+
+<span style="color: red;">The NMDS plots show some broad differences between luminous and non-luminous anglerfish tissues, but the separation is not especially strong, and there is still substantial overlap between groups. Both NMDS stress values are high, with both the Sorensen and Bray-Curtis NMDS having an average stress of about 0.24. No individual run had an acceptable stress value. These values are higher than what is usable, so the NMDS is not an especially strong 2-dimensional representation of the data and should be interpreted cautiously. I tried trimming some of the higher depth sequences, and the stress did not improve, so I kept my original values. Even so, the NMDS generally supports the same overall biological story as the PCoA, especially in showing that Bray-Curtis captures more meaningful tissue-group structure than Sorensen. Overall, the PCoA appears to represent my data more clearly than the NMDS, while the NMDS serves as a weaker but still somewhat consistent comparison.</span>
+
+
+```{r Combining-Plots}
+
+sorensen_pcoa_plot + bray_pcoa_plot + 
+sorensen_nmds_plot + bray_nmds_plot + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+```
+
+<span style="color: red;">INTERPRETATION #7: Plot both the PCoA and NMDS together. Which of the two ordination methods best represents your data and why? Consider the strengths and limitations of each method. For example, the variance explained by each PCoA axis versus the stress value of the NMDS could be used to justify your choice. Do both methods support the same biological conclusions?</span>
+
+<span style="color: red;">When all four ordinations are viewed together, the PCoA appears to represent my data far better than the NMDS. My NMDS stress values are too high to be used, which makes PCoA better inheritly, but it also does show a trend that supports my question about luminous smybiotes. The Bray-Curtis PCoA in particular shows clearer separation between luminous and non-luminous tissues than the Sorensen PCoA. This suggests that abundance-weighted differences are more important than simple presence or absence in distinguishing the microbial communities of these anglerfish tissues. Overall, both methods support the same general biological conclusion that luminous and non-luminous tissues differ more strongly in abundance-weighted community structure than in simple presence or absence alone, but the PCoA, especially Bray-Curtis PCoA, is the ordination method that best represents my dataset and is the easiest to grasp conclusions from the plot.</span>
+
+```{r Permanova-and-Dispersions}
+
+# Bray-Curtis PERMANOVA
+bray_tissue_adonis <- adonis2(scaled_bray_dist ~ tissue_group,
+                              data = metadata_df,
+                              by = "terms")
+bray_tissue_adonis
+
+# Bray-Curtis dispersion test
+dispr_bray_tissue <- betadisper(scaled_bray_dist, metadata_df$tissue_group)
+
+dispr_bray_tissue
+
+permutest(dispr_bray_tissue)
+
+
+```
+
+<span style="color: red;">INTERPRETATION #8: Using the above example to guide you, please run the appropriate PERMANOVA for your scientific question and interpret the results. If you have more than one variable of interest, please make sure to run your model in at least two different term orders and comment on whether the R-squared value changes between models. If so, what does this tell you about whether your variables are independent of one another or co-varying? What biological conclusion can you draw from your PERMANOVA results, and do you accept or reject your hypothesis?</span>
+
+<span style="color: red;">For my scientific question, the most appropriate PERMANOVA used Bray-Curtis dissimilarity with tissue group as the predictor, because I am primarily looking at the abundance-weighted differences between luminous and non-luminous anglerfish tissues. The PERMANOVA result was significant (p = 0.001), which means that tissue group is associated with a significant difference in microbial community composition. The R-squared value was 0.0432, meaning tissue group explained about 4.3% of the total variation in abundance-weighted community structure. This is not a huge amount of variation, but because the symbiont would only make up part of the associated microbiome, I think this makes logical sense. I only used one variable of interest in this model, so running multiple term orders was not necessary here. Biologically, this suggests that luminous and non-luminous tissues differ in the relative abundances of their associated microbes, which fits my scientific question and supports the idea that luminous tissues may be enriched for particular bacterial symbionts. Based on this result, I reject the null hypothesis and support the alternative hypothesis.</span>
+
+
+<span style="color: red;">INTERPRETATION #9: Using the above example to guide you, run the appropriate betadisper() and permutest() for your scientific question and interpret the results. What biological conclusion can you draw from your dispersion analysis?</span>
+
+<span style="color: red;">For my scientific question, I ran betadisper() and permutest() using Bray-Curtis dissimilarity and tissue group. The average distance to the median was 0.6177 for luminous tissues and 0.5962 for non-luminous tissues, which are very similar values. The permutest result was not significant (p = 0.316), meaning the small difference in spread between the two groups was not statistically meaningful. Luminous and non-luminous tissues were therefore not significantly different in how spread out or internally variable they were. Biologically, this suggests that the two tissue groups do not differ just because one is more heterogeneous than the other. Instead, both groups have a similar amount of within-group variation overall.</span>
+
+<span style="color: red;">INTERPRETATION #10: Taking into account both the betadisper()/permutest() and the PERMANOVA (adonis2()) test that you ran, what biological conclusion can you draw regarding your data?</span>
+
+<span style="color: red;">Taken together, the PERMANOVA and betadisper/permutest results suggest that luminous and non-luminous anglerfish tissues differ significantly in abundance-weighted microbial community composition, and that this difference is not being driven by unequal dispersion between groups. The PERMANOVA was significant (p = 0.001), which shows that the tissue group is associated with a real Bray-Curtis community difference. The R-squared value was 0.0432, meaning the tissue group explained about 4.3% of the total variation, so the effect is modest but still statistically meaningful and might suggest that the symbiont differs in abundance, but isn't the most dominant member of its community. The betadisper/permutest result was not significant (p = 0.316), which shows that luminous and non-luminous tissues were not significantly different in their within-group variation. This supports that the PERMANOVA results are more likely reflecting a true biological shift in microbial community composition rather than one group just being more variable than the other. Overall, these results support my alternative hypothesis and suggest that luminous tissues have more enriched populations of luminescent smymbiontes than non-luminous tissues.</span>
+
+```{r reproducibility}
+
+# Take the time now that we are at the end of the script
+end_time <- Sys.time()
+end_time 
+
+
+# Echo the elapsed time
+elapsed_time <- round((end_time - start_time), 3)
+elapsed_time
+```
+
