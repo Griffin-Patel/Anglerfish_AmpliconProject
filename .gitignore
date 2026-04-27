@@ -1,3 +1,6 @@
 .Rproj.user/
 data/00_raw_gzipped_fastqs/
 *.fastq.gz
+.RData
+.Rhistory
+%
