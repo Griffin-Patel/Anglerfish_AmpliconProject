@@ -7,9 +7,24 @@ editor_options:
   chunk_output_type: console
 ---
 
+## Goals
+
+In this file, we will perform compositional analysis of our scaled/noramlized/rarefied microbial dataset!
+
+Load in scaled/normalized phyloseq object.
+Calculate the relative abundances of taxonomic groups at various levels: A. Phylum B. Genus C. ASV
+Plot them, and narrow in on specific taxnomic group of interest
+
+
 ## Set up the markdown with phyloseq file and colors
 
-```{r setup}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = "center",
+  fig.path = "../figures/06_Composition/"
+)
+
 # Load in the packages 
 pacman::p_load(tidyverse, devtools, DT, phyloseq, patchwork, 
                install = FALSE)

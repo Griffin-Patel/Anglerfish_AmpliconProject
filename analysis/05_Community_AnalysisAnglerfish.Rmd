@@ -7,11 +7,31 @@ editor_options:
   chunk_output_type: console
 ---
 
+
 <span style="color: red;">INTERPRETATION #1:  What is your scientific question and hypotheses? Do they relate to abundance-unweighted (presence-absence) or abundance-weighted (relative abundance) metrics?</span>
 
 <span style="color: red;">My scientific question is how microbial community composition differs between luminous and non-luminous body regions of deep-sea anglerfishes. The null hypothesis is that luminous body regions do not differ in microbial composition from non-luminous regions. The alternative hypothesis is that luminous body regions have significantly different microbial composition, with an enriched presence of luminescent symbionts and therefore a more distinct community structure. This question is most closely related to abundance-weighted metrics, because the relative abundances of the associated taxa are important for determining whether luminous tissues are dominated by particular symbiotic bacteria. However, abundance-unweighted metrics are still useful for determining whether the overall presence or absence of taxa also differs between tissue groups.</span>
 
-```{r Setup}
+## Goals 
+
+1. Load in the data. 
+2. Evaluate the need to normalize/scale/rarefy the read depths before beta-diversity analysis. 
+3. Calculate one or more dissimilarity metrics relevant to our study system (*e.g.* Sorensen, Bray-Curtis, abundance-unweighted and abundance-weighted UniFrac).
+4. Compare and contrast the dissimilarity metrics and their relevance to the study.
+5. Visualize the community data with two unconstrained Ordinations:  
+    a. **PCoA**: Linear Method. Eigenvalue = how much variation is explained by each axis. Choose to view axis 1, 2, 3, etc. and plot them together.  
+    b. **NMDS**: Non-linear. Smush multiple Dimensions into 2 or 3 axes. Need to report Stress value (ideally <0.15).
+6. Run statistics with functions from the vegan R package: 
+    a. PERMANOVA with `adonis2()`.
+    b. betadispR with `betadisper()` and `permutest()`.
+
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = "center",
+  fig.path = "../figures/05_Ordination/"
+)
+
 start_time <- Sys.time()
 set.seed(238428)
 
@@ -174,7 +194,7 @@ scaledSeq_vs_numASV_plot <-
 scaledSeq_histogram + scaledSeq_vs_numASV_plot +
   plot_annotation(tag_levels = "A")
 
-save(scaled_physeq, file = "data/05_Ordination_Lecture/scaled_physeq.RData")
+save(scaled_physeq, file = "data/05_Ordination/scaled_physeq.RData")
 
 ```
 

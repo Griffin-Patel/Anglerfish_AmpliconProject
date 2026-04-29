@@ -9,7 +9,7 @@ output: html_document
 ```{r setup}
 knitr::opts_chunk$set(echo = TRUE,
                       fig.align = "center",
-                      fig.path = "../figures/Lecture/03_PreProcessing_Lecture/")
+                      fig.path = "../figures/03_PreProcessing")
 ```
 
 # Goals

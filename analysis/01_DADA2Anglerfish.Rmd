@@ -7,9 +7,11 @@ editor_options:
   chunk_output_type: console
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      fig.align = "center",
-                      fig.path = "../../figures/Lecture/01_QualityTrimming_Lecture/") # send any figure output to this folder 
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = "center",
+  fig.path = "../figures/01_QualityTrimming/"
+) # send any figure output to this folder
 ```
 
 # Goals of this file 
