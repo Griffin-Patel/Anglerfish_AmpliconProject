@@ -25,14 +25,16 @@ Which bacterial taxa are differentially abundant between the light organs (esca 
 
 This project uses published Illumina amplicon sequencing data associated with ceratioid anglerfish tissues.
 
-- **BioProject ID:**: PRJNA514914
-- **Metadata file:**: `data/metadata/SraRunTable.csv`
+- **BioProject ID:** PRJNA514914
+- **SRA Study:** SRP178885
+- **SRR accession numbers:** SRR8438042–SRR8438158 (full accession table included in `data/metadata/SraRunTable.csv`)
+- **Metadata file:** `data/metadata/SraRunTable.csv`
 
 ## 16S rRNA Amplicon Information
 
-Please confirm and fill in the remaining sequencing details before final submission:
-
-- **Primers and 16S region:** 515F/806R for the V4 region
+- **16S region:** V4
+- **Forward primer:** 515F (`GTGYCAGCMGCCGCGGTAA`)
+- **Reverse primer:** 806R (`GGACTACNVGGGTWTCTAAT`)
 
 ## Project Goals
 
